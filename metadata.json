@@ -1,0 +1,6 @@
+{
+  "name": "Gestão de Petições Jurídicas",
+  "description": "Sistema para automatizar a criação de petições jurídicas através de modelos pré-definidos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

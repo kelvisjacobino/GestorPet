@@ -6,6 +6,8 @@ import { open } from 'sqlite';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import dayjs from 'dayjs';
+import he from 'he';
+import { initialLibrary } from './src/data/library';
 
 const __dirname = path.resolve();
 
@@ -18,6 +20,13 @@ async function initDb() {
   });
 
   await db.exec(`
+    CREATE TABLE IF NOT EXISTS areas_direito (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL,
+      descricao TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS advogados (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nome TEXT NOT NULL,
@@ -62,11 +71,21 @@ async function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nome TEXT NOT NULL,
       tipo TEXT NOT NULL,
+      area_id INTEGER,
       descricao TEXT,
       texto TEXT NOT NULL,
       ativo BOOLEAN DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (area_id) REFERENCES areas_direito(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS advogado_areas (
+      advogado_id INTEGER NOT NULL,
+      area_id INTEGER NOT NULL,
+      PRIMARY KEY (advogado_id, area_id),
+      FOREIGN KEY (advogado_id) REFERENCES advogados(id) ON DELETE CASCADE,
+      FOREIGN KEY (area_id) REFERENCES areas_direito(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS peticoes (
@@ -87,6 +106,53 @@ async function initDb() {
       FOREIGN KEY (modelo_id) REFERENCES modelos(id)
     );
   `);
+
+  // Migração: Adicionar coluna area_id se não existir (para DBs legados)
+  const columns = await db.all("PRAGMA table_info(modelos)");
+  const hasAreaId = columns.some((c: any) => c.name === 'area_id');
+  if (!hasAreaId) {
+    try {
+      await db.run('ALTER TABLE modelos ADD COLUMN area_id INTEGER REFERENCES areas_direito(id)');
+    } catch (e) {
+      console.error('Error adding area_id column to modelos:', e);
+    }
+  }
+
+  // Seed areas if empty
+  const areasCount = (await db.get('SELECT COUNT(*) as count FROM areas_direito')).count;
+  if (areasCount === 0) {
+    const areas = [
+      'Direito Civil', 'Direito de Família', 'Direito Sucessório', 'Direito do Consumidor',
+      'Direito Trabalhista', 'Direito Previdenciário', 'Direito Tributário', 'Direito Empresarial',
+      'Direito Penal', 'Processo Penal', 'Direito Administrativo', 'Direito Constitucional',
+      'Direito Ambiental', 'Direito Imobiliário', 'Direito Bancário', 'Direito Médico',
+      'Direito Digital', 'Direito Eleitoral', 'Direito Militar', 'Direito Internacional'
+    ];
+    for (const area of areas) {
+      await db.run('INSERT INTO areas_direito (nome) VALUES (?)', [area]);
+    }
+  }
+
+  // Seed models if missing
+  for (const item of initialLibrary) {
+    const existing = await db.get('SELECT id FROM modelos WHERE nome = ?', [item.metadata.titulo]);
+    if (!existing) {
+      const area = await db.get('SELECT id FROM areas_direito WHERE nome = ?', [item.metadata.area]);
+      if (area) {
+        await db.run(`
+          INSERT INTO modelos (nome, tipo, area_id, descricao, texto, ativo)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `, [
+          item.metadata.titulo,
+          item.metadata.tipo,
+          area.id,
+          `${item.metadata.categoria} - ${item.metadata.subcategoria}`,
+          item.markdown,
+          1
+        ]);
+      }
+    }
+  }
 }
 
 const app = express();
@@ -99,26 +165,53 @@ if (!fs.existsSync(docsDir)) {
 }
 
 // API Routes
+app.get('/api/areas', async (req, res) => {
+  const rows = await db.all('SELECT * FROM areas_direito ORDER BY nome');
+  res.json(rows);
+});
+
 app.get('/api/advogados', async (req, res) => {
   const rows = await db.all('SELECT * FROM advogados ORDER BY nome');
+  for (const row of rows) {
+    const areas = await db.all('SELECT area_id FROM advogado_areas WHERE advogado_id = ?', [row.id]);
+    row.areas = areas.map((a: any) => a.area_id);
+    const areasNomes = await db.all('SELECT nome FROM areas_direito WHERE id IN (SELECT area_id FROM advogado_areas WHERE advogado_id = ?)', [row.id]);
+    row.areas_nomes = areasNomes.map((a: any) => a.nome);
+  }
   res.json(rows);
 });
 
 app.post('/api/advogados', async (req, res) => {
-  const { nome, oab, uf_oab, cpf, telefone, email, endereco, cidade, estado, observacoes, ativo } = req.body;
+  const { nome, oab, uf_oab, cpf, telefone, email, endereco, cidade, estado, observacoes, ativo, areas } = req.body;
   const result = await db.run(`
     INSERT INTO advogados (nome, oab, uf_oab, cpf, telefone, email, endereco, cidade, estado, observacoes, ativo)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [nome, oab, uf_oab, cpf, telefone, email, endereco, cidade, estado, observacoes, ativo ? 1 : 0]);
-  res.json({ id: result.lastID });
+  
+  const advogadoId = result.lastID;
+  if (areas && Array.isArray(areas)) {
+    for (const areaId of areas) {
+      await db.run('INSERT INTO advogado_areas (advogado_id, area_id) VALUES (?, ?)', [advogadoId, areaId]);
+    }
+  }
+
+  const newRow = await db.get('SELECT * FROM advogados WHERE id = ?', [advogadoId]);
+  res.json(newRow);
 });
 
 app.put('/api/advogados/:id', async (req, res) => {
-  const { nome, oab, uf_oab, cpf, telefone, email, endereco, cidade, estado, observacoes, ativo } = req.body;
+  const { nome, oab, uf_oab, cpf, telefone, email, endereco, cidade, estado, observacoes, ativo, areas } = req.body;
   await db.run(`
     UPDATE advogados SET nome=?, oab=?, uf_oab=?, cpf=?, telefone=?, email=?, endereco=?, cidade=?, estado=?, observacoes=?, ativo=?, updated_at=CURRENT_TIMESTAMP
     WHERE id=?
   `, [nome, oab, uf_oab, cpf, telefone, email, endereco, cidade, estado, observacoes, ativo ? 1 : 0, req.params.id]);
+  
+  await db.run('DELETE FROM advogado_areas WHERE advogado_id = ?', [req.params.id]);
+  if (areas && Array.isArray(areas)) {
+    for (const areaId of areas) {
+      await db.run('INSERT INTO advogado_areas (advogado_id, area_id) VALUES (?, ?)', [req.params.id, areaId]);
+    }
+  }
   res.json({ success: true });
 });
 
@@ -138,7 +231,8 @@ app.post('/api/clientes', async (req, res) => {
     INSERT INTO clientes (tipo, nome, cpf_cnpj, rg_ie, estado_civil, profissao, data_nascimento, razao_social, nome_fantasia, representante, telefone, email, cep, endereco, cidade, estado, observacoes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [tipo, nome, cpf_cnpj, rg_ie, estado_civil, profissao, data_nascimento, razao_social, nome_fantasia, representante, telefone, email, cep, endereco, cidade, estado, observacoes]);
-  res.json({ id: result.lastID });
+  const newRow = await db.get('SELECT * FROM clientes WHERE id = ?', [result.lastID]);
+  res.json(newRow);
 });
 
 app.put('/api/clientes/:id', async (req, res) => {
@@ -156,25 +250,31 @@ app.delete('/api/clientes/:id', async (req, res) => {
 });
 
 app.get('/api/modelos', async (req, res) => {
-  const rows = await db.all('SELECT * FROM modelos ORDER BY nome');
+  const rows = await db.all(`
+    SELECT m.*, a.nome as area_nome 
+    FROM modelos m
+    LEFT JOIN areas_direito a ON m.area_id = a.id
+    ORDER BY m.nome
+  `);
   res.json(rows);
 });
 
 app.post('/api/modelos', async (req, res) => {
-  const { nome, tipo, descricao, texto, ativo } = req.body;
+  const { nome, tipo, area_id, descricao, texto, ativo } = req.body;
   const result = await db.run(`
-    INSERT INTO modelos (nome, tipo, descricao, texto, ativo)
-    VALUES (?, ?, ?, ?, ?)
-  `, [nome, tipo, descricao, texto, ativo ? 1 : 0]);
-  res.json({ id: result.lastID });
+    INSERT INTO modelos (nome, tipo, area_id, descricao, texto, ativo)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `, [nome, tipo, area_id, descricao, texto, ativo ? 1 : 0]);
+  const newRow = await db.get('SELECT * FROM modelos WHERE id = ?', [result.lastID]);
+  res.json(newRow);
 });
 
 app.put('/api/modelos/:id', async (req, res) => {
-  const { nome, tipo, descricao, texto, ativo } = req.body;
+  const { nome, tipo, area_id, descricao, texto, ativo } = req.body;
   await db.run(`
-    UPDATE modelos SET nome=?, tipo=?, descricao=?, texto=?, ativo=?, updated_at=CURRENT_TIMESTAMP
+    UPDATE modelos SET nome=?, tipo=?, area_id=?, descricao=?, texto=?, ativo=?, updated_at=CURRENT_TIMESTAMP
     WHERE id=?
-  `, [nome, tipo, descricao, texto, ativo ? 1 : 0, req.params.id]);
+  `, [nome, tipo, area_id, descricao, texto, ativo ? 1 : 0, req.params.id]);
   res.json({ success: true });
 });
 
@@ -226,12 +326,104 @@ app.post('/api/peticoes', async (req, res) => {
 
   const doc = new PDFDocument();
   doc.pipe(fs.createWriteStream(pdfPath));
-  const cleanText = texto_final.replace(/<[^>]*>?/gm, '\n');
-  doc.fontSize(12).text(cleanText, { align: 'justify', indent: 20 });
+  
+  // Clean HTML to text
+  let cleanText = texto_final
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<li>/gi, '• ')
+    .replace(/<[^>]*>?/gm, '');
+  
+  // Decode HTML entities (like &nbsp;)
+  // Using he.decode and also explicit replacement for common ones
+  try {
+    cleanText = he.decode(cleanText);
+  } catch (e) {
+    console.error('Error decoding HTML entities:', e);
+  }
+  
+  // Final cleanup of non-breaking spaces and other common artifacts
+  cleanText = cleanText
+    .replace(/\u00A0/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#39;/g, "'");
+
+  doc.fontSize(12).text(cleanText, { align: 'justify', lineGap: 2 });
   doc.end();
 
   await db.run('UPDATE peticoes SET pdf_path = ? WHERE id = ?', [relativePdfPath, peticaoId]);
   res.json({ id: peticaoId, numero, pdf_path: relativePdfPath });
+});
+
+app.delete('/api/peticoes/:id', async (req, res) => {
+  const peticao = await db.get('SELECT pdf_path FROM peticoes WHERE id=?', [req.params.id]);
+  if (peticao?.pdf_path) {
+    const fullPath = path.join(__dirname, peticao.pdf_path);
+    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+  }
+  await db.run('DELETE FROM peticoes WHERE id=?', [req.params.id]);
+  res.json({ success: true });
+});
+
+app.post('/api/peticoes/:id/regenerar-pdf', async (req, res) => {
+  const peticao = await db.get('SELECT * FROM peticoes WHERE id=?', [req.params.id]);
+  if (!peticao) return res.status(404).json({ error: 'Petição não encontrada' });
+
+  const now = dayjs(peticao.data);
+  const year = now.format('YYYY');
+  const monthMap: Record<string, string> = {
+    '01': 'Janeiro', '02': 'Fevereiro', '03': 'Marco', '04': 'Abril',
+    '05': 'Maio', '06': 'Junho', '07': 'Julho', '08': 'Agosto',
+    '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
+  };
+  const monthName = monthMap[now.format('MM')];
+  
+  const yearDir = path.join(docsDir, year);
+  if (!fs.existsSync(yearDir)) fs.mkdirSync(yearDir);
+  const monthDir = path.join(yearDir, monthName);
+  if (!fs.existsSync(monthDir)) fs.mkdirSync(monthDir);
+
+  const pdfFileName = `Peticao_${peticao.numero}.pdf`;
+  const pdfPath = path.join(monthDir, pdfFileName);
+  const relativePdfPath = `/documentos/${year}/${monthName}/${pdfFileName}`;
+
+  const doc = new PDFDocument();
+  doc.pipe(fs.createWriteStream(pdfPath));
+  
+  let cleanText = peticao.texto_final
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<li>/gi, '• ')
+    .replace(/<[^>]*>?/gm, '');
+  
+  try {
+    cleanText = he.decode(cleanText);
+  } catch (e) {
+    console.error('Error decoding HTML entities:', e);
+  }
+  
+  cleanText = cleanText
+    .replace(/\u00A0/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#39;/g, "'");
+
+  doc.fontSize(12).text(cleanText, { align: 'justify', lineGap: 2 });
+  doc.end();
+
+  await db.run('UPDATE peticoes SET pdf_path = ? WHERE id = ?', [relativePdfPath, peticao.id]);
+  res.json({ success: true, pdf_path: relativePdfPath });
 });
 
 app.get('/api/peticoes/relatorio', async (req, res) => {

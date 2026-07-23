@@ -7,12 +7,14 @@ import {
   Visibility as VisibilityIcon, 
   PictureAsPdf as PdfIcon, 
   Delete as DeleteIcon, 
-  Replay as ReplayIcon 
+  Replay as ReplayIcon,
+  Add as AddIcon
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { Peticao } from '../types';
 import dayjs from 'dayjs';
+import { Link } from 'react-router-dom';
 
 export default function Historico() {
   const queryClient = useQueryClient();
@@ -26,13 +28,26 @@ export default function Historico() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['peticoes'] })
   });
 
+  const regenerarPdfMutation = useMutation({
+    mutationFn: (id: number) => axios.post(`/api/peticoes/${id}/regenerar-pdf`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['peticoes'] });
+      // Show success somehow or just let the user open the PDF again
+    }
+  });
+
   const handleDownloadPdf = (path: string) => {
     window.open(path, '_blank');
   };
 
   return (
     <Box>
-      <Typography variant="h4" sx={{ mb: 3 }}>Histórico de Petições</Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4">Histórico de Petições</Typography>
+        <Button variant="contained" component={Link} to="/peticoes/nova" startIcon={<AddIcon />}>
+          Nova Petição
+        </Button>
+      </Box>
 
       <TableContainer component={Paper} sx={{ border: '1px solid', borderColor: 'divider' }}>
         <Table>
@@ -62,6 +77,11 @@ export default function Historico() {
                   <Tooltip title="Visualizar PDF">
                     <IconButton color="primary" onClick={() => p.pdf_path && handleDownloadPdf(p.pdf_path)}>
                       <PdfIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Atualizar/Corrigir PDF">
+                    <IconButton color="secondary" onClick={() => p.id && regenerarPdfMutation.mutate(p.id)} disabled={regenerarPdfMutation.isPending}>
+                      <ReplayIcon />
                     </IconButton>
                   </Tooltip>
                   <Tooltip title="Excluir">

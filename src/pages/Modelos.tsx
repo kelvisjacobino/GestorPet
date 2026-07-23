@@ -7,7 +7,7 @@ import {
 import { Edit as EditIcon, Delete as DeleteIcon, Add as AddIcon } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { Modelo } from '../types';
+import { Modelo, AreaDireito } from '../types';
 import { useForm, Controller } from 'react-hook-form';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -22,6 +22,11 @@ export default function ModelosList() {
   const [selectedModelo, setSelectedModelo] = useState<Modelo | null>(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
+  const { data: areas } = useQuery<AreaDireito[]>({
+    queryKey: ['areas'],
+    queryFn: () => axios.get('/api/areas').then(res => res.data)
+  });
+
   const { data: modelos, isLoading } = useQuery<Modelo[]>({
     queryKey: ['modelos'],
     queryFn: () => axios.get('/api/modelos').then(res => res.data)
@@ -29,7 +34,7 @@ export default function ModelosList() {
 
   const { control, handleSubmit, reset } = useForm<Modelo>({
     defaultValues: {
-      nome: '', tipo: 'Petição Inicial', descricao: '', texto: '', ativo: true
+      nome: '', tipo: 'Petição Inicial', area_id: undefined, descricao: '', texto: '', ativo: true
     }
   });
 
@@ -85,6 +90,7 @@ export default function ModelosList() {
           <TableHead sx={{ bgcolor: '#f8fafc' }}>
             <TableRow>
               <TableCell sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', letterSpacing: 0.5 }}>Nome</TableCell>
+              <TableCell sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', letterSpacing: 0.5 }}>Área</TableCell>
               <TableCell sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', letterSpacing: 0.5 }}>Tipo</TableCell>
               <TableCell sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', letterSpacing: 0.5 }}>Descrição</TableCell>
               <TableCell sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', letterSpacing: 0.5 }}>Status</TableCell>
@@ -95,6 +101,7 @@ export default function ModelosList() {
             {modelos?.map((mod) => (
               <TableRow key={mod.id}>
                 <TableCell>{mod.nome}</TableCell>
+                <TableCell>{mod.area_nome || '-'}</TableCell>
                 <TableCell>{mod.tipo}</TableCell>
                 <TableCell>{mod.descricao}</TableCell>
                 <TableCell>{mod.ativo ? 'Ativo' : 'Inativo'}</TableCell>
@@ -113,10 +120,23 @@ export default function ModelosList() {
         <form onSubmit={handleSubmit(onSubmit)}>
           <DialogContent>
             <Grid container spacing={2}>
-              <Grid size={{ xs: 12, md: 6 }}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <Controller name="nome" control={control} render={({ field }) => <TextField {...field} label="Nome do Modelo" fullWidth required />} />
               </Grid>
-              <Grid size={{ xs: 12, md: 6 }}>
+              <Grid size={{ xs: 12, md: 4 }}>
+                <Controller 
+                  name="area_id" 
+                  control={control} 
+                  render={({ field }) => (
+                    <TextField {...field} select label="Área do Direito" fullWidth required value={field.value || ''}>
+                      {areas?.map((option) => (
+                        <MenuItem key={option.id} value={option.id}>{option.nome}</MenuItem>
+                      ))}
+                    </TextField>
+                  )} 
+                />
+              </Grid>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <Controller 
                   name="tipo" 
                   control={control} 

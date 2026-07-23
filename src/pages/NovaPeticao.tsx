@@ -1,24 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Box, Typography, Button, Paper, Grid, MenuItem, TextField, Autocomplete, 
-  Stepper, Step, StepLabel, CircularProgress, Divider, Snackbar, Alert
+  Stepper, Step, StepLabel, CircularProgress, Divider, Snackbar, Alert, IconButton
 } from '@mui/material';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { Add as AddIcon } from '@mui/icons-material';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { Advogado, Cliente, Modelo, Peticao, TipoPeticao } from '../types';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import dayjs from 'dayjs';
+import { marked } from 'marked';
 import { useNavigate } from 'react-router-dom';
+import AdvogadoDialog from '../components/AdvogadoDialog';
+import ClienteDialog from '../components/ClienteDialog';
 
 const TIPOS_PETICAO: TipoPeticao[] = [
   'Petição Inicial', 'Petição Intermediária', 'Contestação', 'Recursos', 'Cumprimento de Sentença'
 ];
 
-const steps = ['Configuração', 'Dados', 'Gerar & Editar', 'Conclusão'];
+const steps = ['Profissionais', 'Modelo', 'Gerar & Editar', 'Conclusão'];
 
 export default function NovaPeticao() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [activeStep, setActiveStep] = useState(0);
   const [tipo, setTipo] = useState<TipoPeticao>('Petição Inicial');
   const [modelo, setModelo] = useState<Modelo | null>(null);
@@ -27,11 +32,43 @@ export default function NovaPeticao() {
   const [textoFinal, setTextoFinal] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
+  // Dialog states
+  const [advogadoDialogOpen, setAdvogadoDialogOpen] = useState(false);
+  const [clienteDialogOpen, setClienteDialogOpen] = useState(false);
+
   const { data: advogados } = useQuery<Advogado[]>({ queryKey: ['advogados'], queryFn: () => axios.get('/api/advogados').then(res => res.data) });
   const { data: clientes } = useQuery<Cliente[]>({ queryKey: ['clientes'], queryFn: () => axios.get('/api/clientes').then(res => res.data) });
   const { data: modelos } = useQuery<Modelo[]>({ queryKey: ['modelos'], queryFn: () => axios.get('/api/modelos').then(res => res.data) });
 
-  const filteredModelos = modelos?.filter(m => m.tipo === tipo && m.ativo);
+  const abogadoMutation = useMutation({
+    mutationFn: (newAdvogado: Advogado) => axios.post('/api/advogados', newAdvogado),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['advogados'] });
+      setAdvogado(res.data);
+      setAdvogadoDialogOpen(false);
+      setSnackbar({ open: true, message: 'Advogado cadastrado com sucesso!', severity: 'success' });
+    }
+  });
+
+  const clienteMutation = useMutation({
+    mutationFn: (newCliente: Cliente) => axios.post('/api/clientes', newCliente),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['clientes'] });
+      setCliente(res.data);
+      setClienteDialogOpen(false);
+      setSnackbar({ open: true, message: 'Cliente cadastrado com sucesso!', severity: 'success' });
+    }
+  });
+
+  const filteredModelos = modelos?.filter(m => {
+    const matchesTipo = m.tipo === tipo;
+    const isAtivo = m.ativo;
+    // Se houver um advogado selecionado, filtrar modelos pelas suas áreas
+    const matchesArea = advogado?.areas && advogado.areas.length > 0 
+      ? advogado.areas.includes(m.area_id!)
+      : true;
+    return matchesTipo && isAtivo && matchesArea;
+  });
 
   const handleNext = () => {
     if (activeStep === 1) {
@@ -63,7 +100,8 @@ export default function NovaPeticao() {
       text = text.replace(new RegExp(key, 'g'), value || '');
     });
 
-    setTextoFinal(text);
+    const htmlContent = marked.parse(text);
+    setTextoFinal(htmlContent as string);
   };
 
   const saveMutation = useMutation({
@@ -103,6 +141,49 @@ export default function NovaPeticao() {
         {activeStep === 0 && (
           <Grid container spacing={3}>
             <Grid size={{ xs: 12, md: 6 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Autocomplete
+                  options={advogados || []}
+                  getOptionLabel={(option) => `${option.nome} (OAB: ${option.oab})`}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  renderInput={(params) => <TextField {...params} label="Selecionar Advogado" fullWidth />}
+                  value={advogado}
+                  onChange={(_, newValue) => {
+                    setAdvogado(newValue);
+                    setModelo(null); // Resetar modelo se o advogado mudar
+                  }}
+                  sx={{ flexGrow: 1 }}
+                />
+                <IconButton color="primary" onClick={() => setAdvogadoDialogOpen(true)} title="Novo Advogado">
+                  <AddIcon />
+                </IconButton>
+              </Box>
+            </Grid>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Autocomplete
+                  options={clientes || []}
+                  getOptionLabel={(option) => `${option.tipo === 'PF' ? option.nome : option.razao_social} (${option.cpf_cnpj})`}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  renderInput={(params) => <TextField {...params} label="Selecionar Cliente" fullWidth />}
+                  value={cliente}
+                  onChange={(_, newValue) => setCliente(newValue)}
+                  sx={{ flexGrow: 1 }}
+                />
+                <IconButton color="primary" onClick={() => setClienteDialogOpen(true)} title="Novo Cliente">
+                  <AddIcon />
+                </IconButton>
+              </Box>
+            </Grid>
+            <Grid size={{ xs: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button variant="contained" onClick={handleNext} disabled={!advogado || !cliente}>Próximo</Button>
+            </Grid>
+          </Grid>
+        )}
+
+        {activeStep === 1 && (
+          <Grid container spacing={3}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <TextField 
                 select 
                 label="Tipo de Petição" 
@@ -128,35 +209,9 @@ export default function NovaPeticao() {
                 {filteredModelos?.map((m) => <MenuItem key={m.id} value={m.id}>{m.nome}</MenuItem>)}
               </TextField>
             </Grid>
-            <Grid size={{ xs: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <Button variant="contained" onClick={handleNext} disabled={!modelo}>Próximo</Button>
-            </Grid>
-          </Grid>
-        )}
-
-        {activeStep === 1 && (
-          <Grid container spacing={3}>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <Autocomplete
-                options={advogados || []}
-                getOptionLabel={(option) => `${option.nome} (OAB: ${option.oab})`}
-                renderInput={(params) => <TextField {...params} label="Selecionar Advogado" fullWidth />}
-                value={advogado}
-                onChange={(_, newValue) => setAdvogado(newValue)}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <Autocomplete
-                options={clientes || []}
-                getOptionLabel={(option) => `${option.tipo === 'PF' ? option.nome : option.razao_social} (${option.cpf_cnpj})`}
-                renderInput={(params) => <TextField {...params} label="Selecionar Cliente" fullWidth />}
-                value={cliente}
-                onChange={(_, newValue) => setCliente(newValue)}
-              />
-            </Grid>
             <Grid size={{ xs: 12 }} sx={{ display: 'flex', justifyContent: 'space-between' }}>
               <Button onClick={handleBack}>Voltar</Button>
-              <Button variant="contained" onClick={handleNext} disabled={!advogado || !cliente}>Gerar Texto</Button>
+              <Button variant="contained" onClick={handleNext} disabled={!modelo}>Próximo</Button>
             </Grid>
           </Grid>
         )}
@@ -193,6 +248,18 @@ export default function NovaPeticao() {
           </Box>
         )}
       </Paper>
+
+      <AdvogadoDialog 
+        open={advogadoDialogOpen} 
+        onClose={() => setAdvogadoDialogOpen(false)} 
+        onSubmit={(data) => abogadoMutation.mutate(data)} 
+      />
+
+      <ClienteDialog 
+        open={clienteDialogOpen} 
+        onClose={() => setClienteDialogOpen(false)} 
+        onSubmit={(data) => clienteMutation.mutate(data)} 
+      />
 
       <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={() => setSnackbar({ ...snackbar, open: false })}>
         <Alert severity={snackbar.severity}>{snackbar.message}</Alert>

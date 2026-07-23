@@ -8,6 +8,13 @@ export interface DashboardData {
   ultimasPeticoes: (Peticao & { cliente_nome: string; advogado_nome: string })[];
 }
 
+export interface AreaDireito {
+  id?: number;
+  nome: string;
+  descricao?: string;
+  created_at?: string;
+}
+
 export interface Advogado {
   id?: number;
   nome: string;
@@ -21,6 +28,8 @@ export interface Advogado {
   estado: string;
   observacoes: string;
   ativo: boolean;
+  areas?: number[]; // IDs das áreas
+  areas_nomes?: string[]; // Nomes das áreas (para visualização)
   created_at?: string;
   updated_at?: string;
 }
@@ -52,6 +61,8 @@ export interface Modelo {
   id?: number;
   nome: string;
   tipo: TipoPeticao;
+  area_id?: number;
+  area_nome?: string;
   descricao: string;
   texto: string;
   ativo: boolean;

@@ -10,25 +10,18 @@ import axios from 'axios';
 import { Cliente } from '../types';
 import { useForm, Controller } from 'react-hook-form';
 
+import ClienteDialog from '../components/ClienteDialog';
+
 export default function ClientesList() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
-  const [tabValue, setTabValue] = useState(0);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
   const { data: clientes, isLoading } = useQuery<Cliente[]>({
     queryKey: ['clientes'],
     queryFn: () => axios.get('/api/clientes').then(res => res.data)
   });
-
-  const { control, handleSubmit, reset, watch, setValue } = useForm<Cliente>({
-    defaultValues: {
-      tipo: 'PF', nome: '', cpf_cnpj: '', rg_ie: '', estado_civil: '', profissao: '', data_nascimento: '', razao_social: '', nome_fantasia: '', representante: '', telefone: '', email: '', cep: '', endereco: '', cidade: '', estado: '', observacoes: ''
-    }
-  });
-
-  const tipo = watch('tipo');
 
   const mutation = useMutation({
     mutationFn: (newCliente: Cliente) => {
@@ -40,7 +33,6 @@ export default function ClientesList() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clientes'] });
       setOpen(false);
-      reset();
       setSnackbar({ open: true, message: 'Cliente salvo com sucesso!', severity: 'success' });
     }
   });
@@ -54,23 +46,8 @@ export default function ClientesList() {
   });
 
   const handleOpen = (cliente?: Cliente) => {
-    if (cliente) {
-      setSelectedCliente(cliente);
-      reset(cliente);
-      setTabValue(cliente.tipo === 'PF' ? 0 : 1);
-    } else {
-      setSelectedCliente(null);
-      reset({
-        tipo: 'PF', nome: '', cpf_cnpj: '', rg_ie: '', estado_civil: '', profissao: '', data_nascimento: '', razao_social: '', nome_fantasia: '', representante: '', telefone: '', email: '', cep: '', endereco: '', cidade: '', estado: '', observacoes: ''
-      });
-      setTabValue(0);
-    }
+    setSelectedCliente(cliente || null);
     setOpen(true);
-  };
-
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setTabValue(newValue);
-    setValue('tipo', newValue === 0 ? 'PF' : 'PJ');
   };
 
   const onSubmit = (data: Cliente) => {
@@ -114,86 +91,12 @@ export default function ClientesList() {
         </Table>
       </TableContainer>
 
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>{selectedCliente ? 'Editar Cliente' : 'Novo Cliente'}</DialogTitle>
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogContent>
-            <Tabs value={tabValue} onChange={handleTabChange} sx={{ mb: 3 }}>
-              <Tab label="Pessoa Física" />
-              <Tab label="Pessoa Jurídica" />
-            </Tabs>
-
-            <Grid container spacing={2}>
-              {tipo === 'PF' ? (
-                <>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <Controller name="nome" control={control} render={({ field }) => <TextField {...field} label="Nome Completo" fullWidth required />} />
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <Controller name="cpf_cnpj" control={control} render={({ field }) => <TextField {...field} label="CPF" fullWidth required />} />
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 4 }}>
-                    <Controller name="rg_ie" control={control} render={({ field }) => <TextField {...field} label="RG" fullWidth />} />
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 4 }}>
-                    <Controller name="estado_civil" control={control} render={({ field }) => <TextField {...field} label="Estado Civil" fullWidth />} />
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 4 }}>
-                    <Controller name="profissao" control={control} render={({ field }) => <TextField {...field} label="Profissão" fullWidth />} />
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 4 }}>
-                    <Controller name="data_nascimento" control={control} render={({ field }) => <TextField {...field} label="Data Nascimento" type="date" slotProps={{ inputLabel: { shrink: true } }} fullWidth />} />
-                  </Grid>
-                </>
-              ) : (
-                <>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <Controller name="razao_social" control={control} render={({ field }) => <TextField {...field} label="Razão Social" fullWidth required />} />
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <Controller name="nome_fantasia" control={control} render={({ field }) => <TextField {...field} label="Nome Fantasia" fullWidth />} />
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <Controller name="cpf_cnpj" control={control} render={({ field }) => <TextField {...field} label="CNPJ" fullWidth required />} />
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <Controller name="rg_ie" control={control} render={({ field }) => <TextField {...field} label="Inscrição Estadual" fullWidth />} />
-                  </Grid>
-                  <Grid size={{ xs: 12 }}>
-                    <Controller name="representante" control={control} render={({ field }) => <TextField {...field} label="Representante Legal" fullWidth />} />
-                  </Grid>
-                </>
-              )}
-
-              <Grid size={{ xs: 12, md: 4 }}>
-                <Controller name="telefone" control={control} render={({ field }) => <TextField {...field} label="Telefone" fullWidth />} />
-              </Grid>
-              <Grid size={{ xs: 12, md: 8 }}>
-                <Controller name="email" control={control} render={({ field }) => <TextField {...field} label="Email" fullWidth />} />
-              </Grid>
-              <Grid size={{ xs: 12, md: 3 }}>
-                <Controller name="cep" control={control} render={({ field }) => <TextField {...field} label="CEP" fullWidth />} />
-              </Grid>
-              <Grid size={{ xs: 12, md: 9 }}>
-                <Controller name="endereco" control={control} render={({ field }) => <TextField {...field} label="Endereço" fullWidth />} />
-              </Grid>
-              <Grid size={{ xs: 12, md: 6 }}>
-                <Controller name="cidade" control={control} render={({ field }) => <TextField {...field} label="Cidade" fullWidth />} />
-              </Grid>
-              <Grid size={{ xs: 12, md: 6 }}>
-                <Controller name="estado" control={control} render={({ field }) => <TextField {...field} label="Estado" fullWidth />} />
-              </Grid>
-              <Grid size={{ xs: 12 }}>
-                <Controller name="observacoes" control={control} render={({ field }) => <TextField {...field} label="Observações" multiline rows={2} fullWidth />} />
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setOpen(false)}>Cancelar</Button>
-            <Button type="submit" variant="contained">Salvar</Button>
-          </DialogActions>
-        </form>
-      </Dialog>
+      <ClienteDialog 
+        open={open} 
+        onClose={() => setOpen(false)} 
+        onSubmit={onSubmit} 
+        selectedCliente={selectedCliente} 
+      />
 
       <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={() => setSnackbar({ ...snackbar, open: false })}>
         <Alert severity={snackbar.severity}>{snackbar.message}</Alert>

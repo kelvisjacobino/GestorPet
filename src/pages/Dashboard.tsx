@@ -18,9 +18,6 @@ import {
 } from '@mui/material';
 import { 
   Description as DescriptionIcon, 
-  People as PeopleIcon, 
-  BusinessCenter as BusinessCenterIcon,
-  Add as AddIcon,
   FilePresent as FilePresentIcon
 } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
@@ -51,15 +48,6 @@ export default function Dashboard() {
           <Typography variant="h4" sx={{ mb: 0.5 }}>Bem-vindo ao Sistema</Typography>
           <Typography variant="body2" color="text.secondary">Visão geral da sua produtividade jurídica hoje.</Typography>
         </Box>
-        <Button 
-          variant="contained" 
-          startIcon={<AddIcon />} 
-          component={Link} 
-          to="/peticoes/nova"
-          sx={{ py: 1.25, px: 3 }}
-        >
-          Nova Petição
-        </Button>
       </Box>
 
       <Grid container spacing={3} sx={{ mb: 5 }}>
@@ -136,10 +124,16 @@ export default function Dashboard() {
         </TableContainer>
       </Card>
 
-      <Box sx={{ mt: 4, display: 'flex', gap: 2 }}>
-        <Button variant="outlined" component={Link} to="/clientes/novo" startIcon={<PeopleIcon />}>Novo Cliente</Button>
-        <Button variant="outlined" component={Link} to="/advogados/novo" startIcon={<BusinessCenterIcon />}>Novo Advogado</Button>
+      <Box sx={{ mt: 3, p: 2, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>Entendendo os Status:</Typography>
+        <Typography variant="body2" color="text.secondary">
+          <strong>Pendente:</strong> A petição foi iniciada ou salva temporariamente, mas ainda não foi finalizada ou revisada.
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          <strong>Concluído:</strong> A petição foi totalmente gerada, revisada e está pronta para protocolo ou download.
+        </Typography>
       </Box>
+
     </Box>
   );
 }
